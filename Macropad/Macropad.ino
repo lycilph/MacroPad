@@ -26,6 +26,9 @@ byte rowPins[ROWS] = {15, 14, 16}; //connect to the row pinouts of the keypad
 byte colPins[COLS] = {6, 7, 8}; //connect to the column pinouts of the keypad
 
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, ROWS, COLS );
+unsigned long keyHeldTime[LIST_MAX]; // Keep a list of how long each key is held
+
+bool hasSlept = false;
 
 void setup() {
   //Serial.begin(9600); // Debug stuff
@@ -55,19 +58,19 @@ void setup() {
 void StartAnimation() {
   int waitTime = 250;
 
-  for (int i = 0; i < 3; i++)
+  for (int i = 0; i < numberOfLayers; i++)
   {
     digitalWrite(layerLeds[i], HIGH);
     delay(waitTime);
   }
 
-  for (int i = 0; i < 3; i++)
+  for (int i = 0; i < numberOfLayers; i++)
   {
     digitalWrite(layerLeds[i], LOW);
     delay(waitTime);
   }
 
-  for (int i = 0; i < 3; i++)
+  for (int i = 0; i < numberOfLayers; i++)
   {
     digitalWrite(layerLeds[i], HIGH);
     delay(waitTime);
@@ -82,13 +85,11 @@ void onEb1Click(EncoderButton& eb) {
 }
 
 void onEb1LongClick(EncoderButton& eb) {
-  digitalWrite(layerLeds[currentLayer], LOW);
-
   currentLayer += 1;
   if (currentLayer >= numberOfLayers)
     currentLayer = 0;
 
-  digitalWrite(layerLeds[currentLayer], HIGH);
+  UpdateLayerLeds();
 }
 
 void onEb1Encoder(EncoderButton& eb) {
@@ -103,27 +104,82 @@ void onEb1Encoder(EncoderButton& eb) {
   }
 }
 
+void UpdateLayerLeds()
+{
+  TurnLayerLedsOff();
+
+  // Turn the led for the current layer on
+  digitalWrite(layerLeds[currentLayer], HIGH);
+}
+
+void TurnLayerLedsOff()
+{
+  // Turn all leds off
+  for (int i = 0; i < numberOfLayers; i++)
+  {
+    digitalWrite(layerLeds[i], LOW);
+  }
+}
+
 void loop() {
+  if (USBDevice.isSuspended())
+  {
+    //Serial.println("Sleeping Now");
+    //delay(100);
+
+    TurnLayerLedsOff();
+    LowPower.idle(SLEEP_8S, ADC_OFF, TIMER4_OFF, TIMER3_OFF, TIMER1_OFF, TIMER0_OFF, SPI_OFF, USART1_OFF, TWI_OFF, USB_OFF);
+    hasSlept = true;
+
+    //Serial.println("Woke up again");
+  }
+
+  if (hasSlept && USBDevice.isSuspended() == false)
+  {
+    hasSlept = false;
+    UpdateLayerLeds();
+  }
+
   // Call 'update' for every EncoderButton
   eb1.update();
 
-  // 'Update' the keypad
-  char key = keypad.getKey();
-
-  if (key){
-    //Serial.println(key); // Debug stuff
-
-    switch (currentLayer) {
-      case 0:
-        HandlerLayer0(key);
-        break;
-      case 1:
-        HandlerLayer1(key);
-        break;
-      case 2:
-        HandlerLayer2(key);
-        break;
+  // 'Update' the keypad (and check for pressed keys)
+  if (keypad.getKeys())
+  {
+    for (int i=0; i<LIST_MAX; i++)
+    {
+      if (keypad.key[i].stateChanged && keypad.key[i].kstate == PRESSED)
+      {
+        //Serial.println(keypad.key[i].kchar);
+        HandleSingleKey(keypad.key[i].kchar);
+      }
     }
+  }
+  // Check for held keys
+  for (int i=0; i<LIST_MAX; i++)
+  {
+    if (keypad.key[i].kstate == HOLD && (millis() - keyHeldTime[i]) > 100)
+    {
+      //Serial.print(keypad.key[i].kchar);
+      //Serial.println(" - held");
+      HandleSingleKey(keypad.key[i].kchar);
+      keyHeldTime[i] = millis();
+    }
+  }
+}
+
+void HandleSingleKey(char key)
+{
+  switch (currentLayer) {
+    case 0:
+      HandlerLayer0(key);
+      break;
+    case 1:
+      HandlerLayer1(key);
+      break;
+    case 2:
+      HandlerLayer2(key);
+      break;
   }
 }
 
